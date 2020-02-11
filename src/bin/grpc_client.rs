@@ -1,5 +1,5 @@
-#[macro_use]
-extern crate log;
+// #[macro_use]
+// extern crate log;
 
 use futures_0_3::compat::Compat01As03;
 use futures_0_3::future::try_join_all;
@@ -89,7 +89,7 @@ async fn log_loop(state: Arc<State>) {
         let failed_requests = state.failed_requests.load(Ordering::SeqCst);
         let in_flight = state.in_flight.load(Ordering::SeqCst);
         let max_age = state.max_age.load(Ordering::SeqCst);
-        info!(
+        println!(
             "{} total requests ({}/sec last 1 sec) ({}/sec total). last log {} sec ago. {} failed, {} in flight, {} µs max, {} µs avg response time",
             request_count, req_sec, total_req_sec, elapsed, failed_requests, in_flight, max_age, avg_time
         );
@@ -100,45 +100,45 @@ async fn log_loop(state: Arc<State>) {
     }
 }
 
-pub fn configure_logging() -> Result<(), Box<dyn std::error::Error>> {
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "{}[{}][{}:{}] {}",
-                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
-                record.level(),
-                record.target(),
-                record.line().unwrap_or(0),
-                message
-            ));
-        })
-        .level(log::LevelFilter::Info)
-        .level_for("discovery", log::LevelFilter::Trace)
-        .level_for("hyper", log::LevelFilter::Warn)
-        .level_for("tokio_core", log::LevelFilter::Warn)
-        .level_for("tokio_reactor", log::LevelFilter::Warn)
-        .level_for("h2", log::LevelFilter::Warn)
-        .level_for("tower_buffer", log::LevelFilter::Warn)
-        .chain(std::io::stdout())
-        .apply()?;
-    Ok(())
-}
+// pub fn configure_logging() -> Result<(), Box<dyn std::error::Error>> {
+//     fern::Dispatch::new()
+//         .format(|out, message, record| {
+//             out.finish(format_args!(
+//                 "{}[{}][{}:{}] {}",
+//                 chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+//                 record.level(),
+//                 record.target(),
+//                 record.line().unwrap_or(0),
+//                 message
+//             ));
+//         })
+//         .level(log::LevelFilter::Info)
+//         .level_for("discovery", log::LevelFilter::Trace)
+//         .level_for("hyper", log::LevelFilter::Warn)
+//         .level_for("tokio_core", log::LevelFilter::Warn)
+//         .level_for("tokio_reactor", log::LevelFilter::Warn)
+//         .level_for("h2", log::LevelFilter::Warn)
+//         .level_for("tower_buffer", log::LevelFilter::Warn)
+//         .chain(std::io::stdout())
+//         .apply()?;
+//     Ok(())
+// }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::default());
     let log_state = state.clone();
-    configure_logging()?;
+    // configure_logging()?;
 
     spawn(async move {
         log_loop(log_state).await;
     });
 
-    let env = Arc::new(EnvBuilder::new().build());
-    let ch = ChannelBuilder::new(env).connect("[::1]:50051");
-    let client = GreeterClient::new(ch);
     let mut futs = vec![];
     for _ in 0..100 {
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env.clone()).connect("[::1]:50051");
+        let client = GreeterClient::new(ch);
         futs.push(spawn(work_loop(client.clone(), state.clone())));
     }
 
