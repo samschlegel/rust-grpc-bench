@@ -1,9 +1,11 @@
 #[macro_use]
 extern crate log;
 
+use futures_0_3::compat::Compat01As03;
 use futures_0_3::future::try_join_all;
-use hello_world::greeter_client::GreeterClient;
-use hello_world::HelloRequest;
+use grpcio::{ChannelBuilder, EnvBuilder};
+use rust_grpc_bench::proto::helloworld::HelloRequest;
+use rust_grpc_bench::proto::helloworld_grpc::GreeterClient;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,18 +25,26 @@ struct State {
     request_time: AtomicUsize,
 }
 
-async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) {
+async fn do_work(client: GreeterClient, state: Arc<State>) {
     let start = Instant::now();
     state.in_flight.fetch_add(1, Ordering::SeqCst);
 
-    let request = tonic::Request::new(HelloRequest {
-        name: "Tonic".into(),
-    });
+    let mut request = HelloRequest::new();
+    request.set_name("Tonic".to_string());
 
-    let response = client.say_hello(request).await;
+    let response = client.say_hello_async(&request);
     match response {
-        Ok(_response) => {
-            state.request_count.fetch_add(1, Ordering::SeqCst);
+        Ok(response) => {
+            let response = Compat01As03::new(response).await;
+            match response {
+                Ok(_response) => {
+                    state.request_count.fetch_add(1, Ordering::SeqCst);
+                }
+                Err(e) => {
+                    state.failed_requests.fetch_add(1, Ordering::SeqCst);
+                    println!("{}", e);
+                }
+            };
         }
         Err(e) => {
             state.failed_requests.fetch_add(1, Ordering::SeqCst);
@@ -52,7 +62,7 @@ async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Ar
     state.in_flight.fetch_sub(1, Ordering::SeqCst);
 }
 
-async fn work_loop(client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) {
+async fn work_loop(client: GreeterClient, state: Arc<State>) {
     loop {
         do_work(client.clone(), state.clone()).await;
     }
@@ -124,9 +134,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_loop(log_state).await;
     });
 
-    let client = GreeterClient::connect("http://[::1]:50051").await?;
+    let env = Arc::new(EnvBuilder::new().build());
+    let ch = ChannelBuilder::new(env).connect("[::1]:50051");
+    let client = GreeterClient::new(ch);
     let mut futs = vec![];
-    for _ in 0..10 {
+    for _ in 0..100 {
         futs.push(spawn(work_loop(client.clone(), state.clone())));
     }
 
