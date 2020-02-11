@@ -7,6 +7,11 @@ use std::time::{Duration, Instant};
 use tokio::task::spawn;
 use tokio::time::delay_for;
 use tonic::transport::Channel;
+use tracing::{info, Level};
+use tracing_subscriber::{
+    filter::{EnvFilter, LevelFilter},
+    FmtSubscriber,
+};
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
@@ -77,7 +82,7 @@ async fn log_loop(state: Arc<State>) {
         let failed_requests = state.failed_requests.load(Ordering::SeqCst);
         let in_flight = state.in_flight.load(Ordering::SeqCst);
         let max_age = state.max_age.load(Ordering::SeqCst);
-        println!(
+        info!(
             "{} total requests ({}/sec last 1 sec) ({}/sec total). last log {} sec ago. {} failed, {} in flight, {} µs max, {} µs avg response time",
             request_count, req_sec, total_req_sec, elapsed, failed_requests, in_flight, max_age, avg_time
         );
@@ -112,11 +117,24 @@ async fn log_loop(state: Arc<State>) {
 //     Ok(())
 // }
 
+pub fn configure_tracing() -> Result<(), Box<dyn std::error::Error>> {
+    let filter = EnvFilter::from_default_env()
+        .add_directive(LevelFilter::INFO.into())
+        .add_directive("discovery=trace".parse()?)
+        .add_directive("hyper=warn".parse()?)
+        .add_directive("tokio_core=warn".parse()?)
+        .add_directive("tokio_reactor=warn".parse()?)
+        .add_directive("h2=warn".parse()?)
+        .add_directive("tower_buffer=warn".parse()?);
+    FmtSubscriber::builder().with_env_filter(filter).init();
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::default());
     let log_state = state.clone();
-    // configure_logging()?;
+    configure_tracing()?;
 
     spawn(async move {
         log_loop(log_state).await;
