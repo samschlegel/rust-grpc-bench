@@ -1,17 +1,20 @@
 use futures_0_3::future::try_join_all;
 use hello_world::greeter_client::GreeterClient;
 use hello_world::HelloRequest;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::task::spawn;
 use tokio::time::delay_for;
 use tonic::transport::Channel;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_subscriber::{
     filter::{EnvFilter, LevelFilter},
-    FmtSubscriber,
+    layer::SubscriberExt,
+    FmtSubscriber, Registry
 };
+use rust_grpc_bench::counter::Counter;
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
@@ -24,6 +27,7 @@ struct State {
     in_flight: AtomicUsize,
     max_age: AtomicUsize,
     request_time: AtomicUsize,
+    counts: Arc<RwLock<HashMap<String, AtomicUsize>>>,
 }
 
 async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) {
@@ -82,7 +86,15 @@ async fn log_loop(state: Arc<State>) {
         let failed_requests = state.failed_requests.load(Ordering::SeqCst);
         let in_flight = state.in_flight.load(Ordering::SeqCst);
         let max_age = state.max_age.load(Ordering::SeqCst);
-        info!(
+        // {
+        //     let h = state.counts.read().unwrap();
+        //     let mut v = h.iter().map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed) as u64/start_elapsed)).collect::<Vec<(String, u64)>>();
+        //     v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        //     for t in v {
+        //         println!("{}: {}", t.0, t.1);
+        //     }
+        // }
+        println!(
             "{} total requests ({}/sec last 1 sec) ({}/sec total). last log {} sec ago. {} failed, {} in flight, {} µs max, {} µs avg response time",
             request_count, req_sec, total_req_sec, elapsed, failed_requests, in_flight, max_age, avg_time
         );
@@ -117,7 +129,7 @@ async fn log_loop(state: Arc<State>) {
 //     Ok(())
 // }
 
-pub fn configure_tracing() -> Result<(), Box<dyn std::error::Error>> {
+fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>> {
     let filter = EnvFilter::from_default_env()
         .add_directive(LevelFilter::INFO.into())
         .add_directive("discovery=trace".parse()?)
@@ -126,16 +138,21 @@ pub fn configure_tracing() -> Result<(), Box<dyn std::error::Error>> {
         .add_directive("tokio_reactor=warn".parse()?)
         .add_directive("h2=warn".parse()?)
         .add_directive("tower_buffer=warn".parse()?);
-    FmtSubscriber::builder().with_env_filter(filter).init();
+        
+    let subscriber = FmtSubscriber::builder().with_env_filter(filter).finish();
+    // let counter = Counter { counts: state.counts.clone() };
+    // let subscriber = Registry::default().with(counter);
+    tracing_log::LogTracer::init().map_err(Box::new)?;
+    tracing::subscriber::set_global_default(subscriber)?;
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::default());
-    let log_state = state.clone();
-    configure_tracing()?;
+    configure_tracing(state.clone())?;
 
+    let log_state = state.clone();
     spawn(async move {
         log_loop(log_state).await;
     });

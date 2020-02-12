@@ -906,6 +906,8 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tracing",
+ "tracing-core",
+ "tracing-log",
  "tracing-subscriber",
 ]
 
@@ -1295,8 +1297,6 @@ dependencies = [
 [[package]]
 name = "tracing"
 version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e213bd24252abeb86a0b7060e02df677d367ce6cb772cef17e9214b8390a8d3"
 dependencies = [
  "cfg-if",
  "log",
@@ -1307,8 +1307,6 @@ dependencies = [
 [[package]]
 name = "tracing-attributes"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04cfd395def5a60236e187e1ff905cb55668a59f29928dec05e6e1b1fd2ac1f3"
 dependencies = [
  "quote",
  "syn",
@@ -1316,9 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13a46f11e372b8bd4b4398ea54353412fdd7fd42a8370c7e543e218cf7661978"
+version = "0.1.10"
 dependencies = [
  "lazy_static",
 ]
@@ -1336,8 +1332,6 @@ dependencies = [
 [[package]]
 name = "tracing-log"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e0f8c7178e13481ff6765bd169b33e8d554c5d2bbede5e32c356194be02b9b9"
 dependencies = [
  "lazy_static",
  "log",
@@ -1347,8 +1341,6 @@ dependencies = [
 [[package]]
 name = "tracing-serde"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d65dea8255e378ab7db9db2077a90cb3e051515e18eaa819a405c4eb129b9beb"
 dependencies = [
  "serde",
  "tracing-core",
@@ -1357,8 +1349,6 @@ dependencies = [
 [[package]]
 name = "tracing-subscriber"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dc36e47794112347ccb9ae8a05b5ec4fab45f01545e4929323cdb1a543a8f4"
 dependencies = [
  "ansi_term",
  "chrono",

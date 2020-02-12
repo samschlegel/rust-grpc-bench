@@ -18,7 +18,9 @@ protobuf = "~2"
 futures = "0.1"
 futures_0_3 = { package = "futures", version = "0.3", features = ["compat"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.2", features = ["env-filter", "fmt"] }
+tracing-core = "0.1"
+tracing-subscriber = { version = "0.2", features = ["env-filter", "fmt", "registry"] }
+tracing-log = "0.1.1"
 hyper = "0.13.2"
 
 [build-dependencies]
@@ -27,3 +29,7 @@ protoc-grpcio = "1.0.2"
 
 [patch.crates-io]
 hyper = { path = "../hyper" }
+tracing = { path = "../tracing/tracing" }
+tracing-core = { path = "../tracing/tracing-core" }
+tracing-subscriber = { path = "../tracing/tracing-subscriber" }
+tracing-log = { path = "../tracing/tracing-log" }
