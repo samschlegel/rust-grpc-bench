@@ -30,7 +30,8 @@ async fn do_work(client: GreeterClient, state: Arc<State>) {
     state.in_flight.fetch_add(1, Ordering::SeqCst);
 
     let mut request = HelloRequest::new();
-    request.set_name("Tonic".to_string());
+    // request.set_name("Tonic".to_string());
+    request.set_name(1);
 
     let response = client.say_hello_async(&request);
     match response {

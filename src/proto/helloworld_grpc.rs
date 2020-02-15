@@ -25,6 +25,13 @@ const METHOD_GREETER_SAY_HELLO: ::grpcio::Method<super::helloworld::HelloRequest
     resp_mar: ::grpcio::Marshaller { ser: ::grpcio::pb_ser, de: ::grpcio::pb_de },
 };
 
+const METHOD_GREETER_SAY_HELLO_STREAM: ::grpcio::Method<super::helloworld::HelloRequest, super::helloworld::HelloReply> = ::grpcio::Method {
+    ty: ::grpcio::MethodType::Duplex,
+    name: "/helloworld.Greeter/SayHelloStream",
+    req_mar: ::grpcio::Marshaller { ser: ::grpcio::pb_ser, de: ::grpcio::pb_de },
+    resp_mar: ::grpcio::Marshaller { ser: ::grpcio::pb_ser, de: ::grpcio::pb_de },
+};
+
 #[derive(Clone)]
 pub struct GreeterClient {
     client: ::grpcio::Client,
@@ -52,6 +59,14 @@ impl GreeterClient {
     pub fn say_hello_async(&self, req: &super::helloworld::HelloRequest) -> ::grpcio::Result<::grpcio::ClientUnaryReceiver<super::helloworld::HelloReply>> {
         self.say_hello_async_opt(req, ::grpcio::CallOption::default())
     }
+
+    pub fn say_hello_stream_opt(&self, opt: ::grpcio::CallOption) -> ::grpcio::Result<(::grpcio::ClientDuplexSender<super::helloworld::HelloRequest>, ::grpcio::ClientDuplexReceiver<super::helloworld::HelloReply>)> {
+        self.client.duplex_streaming(&METHOD_GREETER_SAY_HELLO_STREAM, opt)
+    }
+
+    pub fn say_hello_stream(&self) -> ::grpcio::Result<(::grpcio::ClientDuplexSender<super::helloworld::HelloRequest>, ::grpcio::ClientDuplexReceiver<super::helloworld::HelloReply>)> {
+        self.say_hello_stream_opt(::grpcio::CallOption::default())
+    }
     pub fn spawn<F>(&self, f: F) where F: ::futures::Future<Item = (), Error = ()> + Send + 'static {
         self.client.spawn(f)
     }
@@ -59,13 +74,18 @@ impl GreeterClient {
 
 pub trait Greeter {
     fn say_hello(&mut self, ctx: ::grpcio::RpcContext, req: super::helloworld::HelloRequest, sink: ::grpcio::UnarySink<super::helloworld::HelloReply>);
+    fn say_hello_stream(&mut self, ctx: ::grpcio::RpcContext, stream: ::grpcio::RequestStream<super::helloworld::HelloRequest>, sink: ::grpcio::DuplexSink<super::helloworld::HelloReply>);
 }
 
 pub fn create_greeter<S: Greeter + Send + Clone + 'static>(s: S) -> ::grpcio::Service {
     let mut builder = ::grpcio::ServiceBuilder::new();
-    let mut instance = s;
+    let mut instance = s.clone();
     builder = builder.add_unary_handler(&METHOD_GREETER_SAY_HELLO, move |ctx, req, resp| {
         instance.say_hello(ctx, req, resp)
+    });
+    let mut instance = s;
+    builder = builder.add_duplex_streaming_handler(&METHOD_GREETER_SAY_HELLO_STREAM, move |ctx, req, resp| {
+        instance.say_hello_stream(ctx, req, resp)
     });
     builder.build()
 }

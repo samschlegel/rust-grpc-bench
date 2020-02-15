@@ -38,23 +38,33 @@ impl Counter {
 
 #[derive(Default)]
 struct CounterLogVisitor {
-    target: Option<String>,
+    file: String,
+    line: u64,
 }
 
 impl CounterLogVisitor {
-    fn target(self) -> String {
-        self.target.unwrap_or("_unknown_target".to_string())
+    fn target(&self) -> String {
+        format!("{}:{}", self.file.trim_start_matches("/home/sam/.cargo/registry/src/github.com-1ecc6299db9ec823"), self.line)
     }
 }
 
 impl Visit for CounterLogVisitor {
     fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "log.target" {
-            self.target = Some(value.to_string());
+        match field.name() {
+            "log.file" => self.file = value.to_string(),
+            _ => {},
         }
     }
 
-    fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        match field.name() {
+            "log.line" => self.line = value,
+            _ => {},
+        }
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {}
 }
 
 impl<S> Layer<S> for Counter
@@ -70,6 +80,9 @@ where
             let mut visitor = CounterLogVisitor::default();
             event.record(&mut visitor);
             self.incr(visitor.target());
+            // for f in event.fields() {
+            //     self.incr(f);
+            // }
         }
     }
 

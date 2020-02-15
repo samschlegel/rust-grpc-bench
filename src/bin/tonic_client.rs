@@ -1,4 +1,6 @@
-use futures_0_3::future::try_join_all;
+use async_stream;
+use futures_0_3::future::{self, try_join_all};
+use futures_0_3::stream::{self, StreamExt};
 use hello_world::greeter_client::GreeterClient;
 use hello_world::HelloRequest;
 use std::collections::HashMap;
@@ -35,7 +37,8 @@ async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Ar
     state.in_flight.fetch_add(1, Ordering::SeqCst);
 
     let request = tonic::Request::new(HelloRequest {
-        name: "Tonic".into(),
+        // name: "Tonic".into(),
+        name: 1,
     });
 
     let response = client.say_hello(request).await;
@@ -59,9 +62,76 @@ async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Ar
     state.in_flight.fetch_sub(1, Ordering::SeqCst);
 }
 
+async fn do_work_stream(mut client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) -> Result<(), tonic::Status> {
+    let req_state = state.clone();
+    let request_stream = async_stream::stream! {
+        let mut seq = 0;
+        loop {
+            req_state.in_flight.fetch_add(1, Ordering::SeqCst);
+            let start = Instant::now();
+            let req = HelloRequest {
+                // name: "Tonic".into(),
+                name: seq,
+            };
+            seq += 1;
+            yield (start, req)
+        }
+    };
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let request_stream = request_stream.map(move |(time, req)| {
+        tx.send(time).ok();
+        req
+    });
+
+    let response = client.say_hello_stream(request_stream).await?;
+
+    response
+        .into_inner()
+        .zip(rx)
+        .enumerate()
+        .for_each(move |(i, (r, t))| {
+            match r {
+                Ok(response) => {
+                    assert_eq!(response.message,  i as u64);
+                    state.request_count.fetch_add(1, Ordering::SeqCst);
+                }
+                Err(e) => {
+                    state.failed_requests.fetch_add(1, Ordering::SeqCst);
+                    println!("{}", e);
+                }
+            }
+            let age = Instant::now().duration_since(t).as_micros() as usize;
+            state.request_time.fetch_add(age, Ordering::SeqCst);
+
+            if age > state.max_age.load(Ordering::SeqCst) {
+                state.max_age.store(age, Ordering::SeqCst)
+            }
+
+            state.in_flight.fetch_sub(1, Ordering::SeqCst);
+            future::ready(())
+        })
+        .await;
+
+    // let response = client.say_hello(request).await;
+    // match response {
+    //     Ok(_response) => {
+    //         state.request_count.fetch_add(1, Ordering::SeqCst);
+    //     }
+    //     Err(e) => {
+    //         state.failed_requests.fetch_add(1, Ordering::SeqCst);
+    //         println!("{}", e);
+    //     }
+    // }
+
+    // state.in_flight.fetch_sub(1, Ordering::SeqCst);
+    Ok(())
+}
+
 async fn work_loop(client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) {
     loop {
-        do_work(client.clone(), state.clone()).await;
+        do_work_stream(client.clone(), state.clone()).await;
     }
 }
 
@@ -86,14 +156,14 @@ async fn log_loop(state: Arc<State>) {
         let failed_requests = state.failed_requests.load(Ordering::SeqCst);
         let in_flight = state.in_flight.load(Ordering::SeqCst);
         let max_age = state.max_age.load(Ordering::SeqCst);
-        // {
-        //     let h = state.counts.read().unwrap();
-        //     let mut v = h.iter().map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed) as u64/start_elapsed)).collect::<Vec<(String, u64)>>();
-        //     v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        //     for t in v {
-        //         println!("{}: {}", t.0, t.1);
-        //     }
-        // }
+        {
+            let h = state.counts.read().unwrap();
+            let mut v = h.iter().map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed) as u64/start_elapsed)).collect::<Vec<(String, u64)>>();
+            v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            for t in v {
+                println!("{}: {}", t.0, t.1);
+            }
+        }
         println!(
             "{} total requests ({}/sec last 1 sec) ({}/sec total). last log {} sec ago. {} failed, {} in flight, {} µs max, {} µs avg response time",
             request_count, req_sec, total_req_sec, elapsed, failed_requests, in_flight, max_age, avg_time
@@ -131,23 +201,24 @@ async fn log_loop(state: Arc<State>) {
 
 fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>> {
     let filter = EnvFilter::from_default_env()
-        .add_directive(LevelFilter::INFO.into())
-        .add_directive("discovery=trace".parse()?)
-        .add_directive("hyper=warn".parse()?)
-        .add_directive("tokio_core=warn".parse()?)
-        .add_directive("tokio_reactor=warn".parse()?)
-        .add_directive("h2=warn".parse()?)
-        .add_directive("tower_buffer=warn".parse()?);
+        .add_directive(LevelFilter::ERROR.into());
+        // .add_directive("discovery=trace".parse()?)
+        // .add_directive("hyper=warn".parse()?)
+        // .add_directive("tokio_core=warn".parse()?)
+        // .add_directive("tokio_reactor=warn".parse()?)
+        // .add_directive("h2=warn".parse()?);
+        // .add_directive("tower_buffer=warn".parse()?);
         
     let subscriber = FmtSubscriber::builder().with_env_filter(filter).finish();
     // let counter = Counter { counts: state.counts.clone() };
+    // let subscriber = Registry::default();
     // let subscriber = Registry::default().with(counter);
-    tracing_log::LogTracer::init().map_err(Box::new)?;
+    // tracing_log::LogTracer::init().map_err(Box::new)?;
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(core_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::default());
     configure_tracing(state.clone())?;
@@ -157,12 +228,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_loop(log_state).await;
     });
 
-    let endpoints = (0..100).map(|_| Channel::from_static("http://[::1]:50051"));
+    let endpoints = (0..100).map(|_| Channel::from_static("http://[::1]:50052"));
     let channel = Channel::balance_list(endpoints);
     let client = GreeterClient::new(channel);
 
     let mut futs = vec![];
-    for _ in 0..100 {
+    for _ in 0..4 {
         // let client = GreeterClient::connect("http://[::1]:50051").await?;
         futs.push(spawn(work_loop(client.clone(), state.clone())));
     }

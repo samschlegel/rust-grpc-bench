@@ -1,4 +1,6 @@
-use tonic::{transport::Server, Request, Response, Status};
+use futures_0_3::stream::{Stream, StreamExt};
+use std::pin::Pin;
+use tonic::{transport::Server, Request, Response, Streaming, Status};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
@@ -19,15 +21,33 @@ impl Greeter for MyGreeter {
         // println!("Got a request from {:?}", request.remote_addr());
 
         let reply = hello_world::HelloReply {
-            message: format!("Hello {}!", request.into_inner().name),
+            // message: format!("Hello {}!", request.into_inner().name),
+            message: request.into_inner().name,
         };
         Ok(Response::new(reply))
     }
+
+    type SayHelloStreamStream = Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send + Sync + 'static>>;
+    async fn say_hello_stream(
+        &self,
+        request: Request<Streaming<HelloRequest>>,
+    ) -> Result<Response<Self::SayHelloStreamStream>, Status> {
+        let resp_stream = request.into_inner().map(|r| {
+            r.map(|r| HelloReply {
+                // message: format!("Hello {}!", r.name),
+                message: r.name,
+            })
+        });
+
+        Ok(Response::new(
+            Box::pin(resp_stream) as Self::SayHelloStreamStream
+        ))
+    }
 }
 
-#[tokio::main]
+#[tokio::main(core_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse().unwrap();
+    let addr = "[::1]:50052".parse().unwrap();
     let greeter = MyGreeter::default();
 
     println!("GreeterServer listening on {}", addr);

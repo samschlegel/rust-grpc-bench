@@ -894,6 +894,7 @@ dependencies = [
 name = "rust-grpc-bench"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "chrono",
  "futures 0.1.29",
  "futures 0.3.4",
@@ -1036,6 +1037,7 @@ checksum = "c1fc73332507b971a5010664991a441b5ee0de92017f5a0e8b00fd684573045b"
 dependencies = [
  "bytes",
  "fnv",
+ "futures-core",
  "iovec",
  "lazy_static",
  "libc",
