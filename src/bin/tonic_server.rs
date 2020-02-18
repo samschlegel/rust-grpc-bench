@@ -1,6 +1,6 @@
 use futures_0_3::stream::{Stream, StreamExt};
 use std::pin::Pin;
-use tonic::{transport::Server, Request, Response, Streaming, Status};
+use tonic::{transport::Server, Request, Response, Status, Streaming};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
@@ -27,7 +27,8 @@ impl Greeter for MyGreeter {
         Ok(Response::new(reply))
     }
 
-    type SayHelloStreamStream = Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send + Sync + 'static>>;
+    type SayHelloStreamStream =
+        Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send + Sync + 'static>>;
     async fn say_hello_stream(
         &self,
         request: Request<Streaming<HelloRequest>>,

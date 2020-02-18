@@ -1,6 +1,5 @@
-use async_stream;
 use futures_0_3::future::{self, try_join_all};
-use futures_0_3::stream::{self, StreamExt};
+use futures_0_3::stream::StreamExt;
 use hello_world::greeter_client::GreeterClient;
 use hello_world::HelloRequest;
 use std::collections::HashMap;
@@ -8,15 +7,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::task::spawn;
-use tokio::time::delay_for;
+use tokio::time::{self, delay_for};
 use tonic::transport::Channel;
-use tracing::{info, warn, Level};
 use tracing_subscriber::{
     filter::{EnvFilter, LevelFilter},
-    layer::SubscriberExt,
-    FmtSubscriber, Registry
+    FmtSubscriber,
 };
-use rust_grpc_bench::counter::Counter;
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
@@ -62,21 +58,24 @@ async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Ar
     state.in_flight.fetch_sub(1, Ordering::SeqCst);
 }
 
-async fn do_work_stream(mut client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) -> Result<(), tonic::Status> {
+async fn do_work_stream(
+    mut client: GreeterClient<tonic::transport::Channel>,
+    state: Arc<State>,
+) -> Result<(), tonic::Status> {
     let req_state = state.clone();
-    let request_stream = async_stream::stream! {
-        let mut seq = 0;
-        loop {
+    // Target is 1MM RPS across 4 tasks
+    let req_delay_ns: u64 = 1_000_000_000 / 1_000_000 * 4;
+    let request_stream = time::interval(Duration::from_nanos(req_delay_ns))
+        .enumerate()
+        .map(move |(seq, t)| {
             req_state.in_flight.fetch_add(1, Ordering::SeqCst);
             let start = Instant::now();
             let req = HelloRequest {
                 // name: "Tonic".into(),
-                name: seq,
+                name: seq as u64,
             };
-            seq += 1;
-            yield (start, req)
-        }
-    };
+            (start, req)
+        });
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -94,7 +93,7 @@ async fn do_work_stream(mut client: GreeterClient<tonic::transport::Channel>, st
         .for_each(move |(i, (r, t))| {
             match r {
                 Ok(response) => {
-                    assert_eq!(response.message,  i as u64);
+                    assert_eq!(response.message, i as u64);
                     state.request_count.fetch_add(1, Ordering::SeqCst);
                 }
                 Err(e) => {
@@ -114,24 +113,15 @@ async fn do_work_stream(mut client: GreeterClient<tonic::transport::Channel>, st
         })
         .await;
 
-    // let response = client.say_hello(request).await;
-    // match response {
-    //     Ok(_response) => {
-    //         state.request_count.fetch_add(1, Ordering::SeqCst);
-    //     }
-    //     Err(e) => {
-    //         state.failed_requests.fetch_add(1, Ordering::SeqCst);
-    //         println!("{}", e);
-    //     }
-    // }
-
-    // state.in_flight.fetch_sub(1, Ordering::SeqCst);
     Ok(())
 }
 
-async fn work_loop(client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) {
+async fn work_loop(
+    client: GreeterClient<tonic::transport::Channel>,
+    state: Arc<State>,
+) -> Result<(), tonic::Status> {
     loop {
-        do_work_stream(client.clone(), state.clone()).await;
+        do_work_stream(client.clone(), state.clone()).await?;
     }
 }
 
@@ -158,7 +148,10 @@ async fn log_loop(state: Arc<State>) {
         let max_age = state.max_age.load(Ordering::SeqCst);
         {
             let h = state.counts.read().unwrap();
-            let mut v = h.iter().map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed) as u64/start_elapsed)).collect::<Vec<(String, u64)>>();
+            let mut v = h
+                .iter()
+                .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed) as u64 / start_elapsed))
+                .collect::<Vec<(String, u64)>>();
             v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
             for t in v {
                 println!("{}: {}", t.0, t.1);
@@ -200,15 +193,14 @@ async fn log_loop(state: Arc<State>) {
 // }
 
 fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>> {
-    let filter = EnvFilter::from_default_env()
-        .add_directive(LevelFilter::ERROR.into());
-        // .add_directive("discovery=trace".parse()?)
-        // .add_directive("hyper=warn".parse()?)
-        // .add_directive("tokio_core=warn".parse()?)
-        // .add_directive("tokio_reactor=warn".parse()?)
-        // .add_directive("h2=warn".parse()?);
-        // .add_directive("tower_buffer=warn".parse()?);
-        
+    let filter = EnvFilter::from_default_env().add_directive(LevelFilter::ERROR.into());
+    // .add_directive("discovery=trace".parse()?)
+    // .add_directive("hyper=warn".parse()?)
+    // .add_directive("tokio_core=warn".parse()?)
+    // .add_directive("tokio_reactor=warn".parse()?)
+    // .add_directive("h2=warn".parse()?);
+    // .add_directive("tower_buffer=warn".parse()?);
+
     let subscriber = FmtSubscriber::builder().with_env_filter(filter).finish();
     // let counter = Counter { counts: state.counts.clone() };
     // let subscriber = Registry::default();
@@ -228,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_loop(log_state).await;
     });
 
-    let endpoints = (0..100).map(|_| Channel::from_static("http://[::1]:50052"));
+    let endpoints = (0..4).map(|_| Channel::from_static("http://[::1]:50052"));
     let channel = Channel::balance_list(endpoints);
     let client = GreeterClient::new(channel);
 

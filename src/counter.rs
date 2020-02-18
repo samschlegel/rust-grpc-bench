@@ -6,13 +6,11 @@ use std::sync::{
     Arc, RwLock,
 };
 use tracing_core::{
+    field::{Field, Visit},
     span::{Attributes, Id, Record},
     Event, Metadata, Subscriber,
-    field::{Field, Visit},
 };
-use tracing_subscriber::{
-    layer::{Context, Layer},
-};
+use tracing_subscriber::layer::{Context, Layer};
 
 #[derive(Default, Debug)]
 pub struct Counter {
@@ -44,7 +42,12 @@ struct CounterLogVisitor {
 
 impl CounterLogVisitor {
     fn target(&self) -> String {
-        format!("{}:{}", self.file.trim_start_matches("/home/sam/.cargo/registry/src/github.com-1ecc6299db9ec823"), self.line)
+        format!(
+            "{}:{}",
+            self.file
+                .trim_start_matches("/home/sam/.cargo/registry/src/github.com-1ecc6299db9ec823"),
+            self.line
+        )
     }
 }
 
@@ -52,15 +55,14 @@ impl Visit for CounterLogVisitor {
     fn record_str(&mut self, field: &Field, value: &str) {
         match field.name() {
             "log.file" => self.file = value.to_string(),
-            _ => {},
+            _ => {}
         }
     }
-
 
     fn record_u64(&mut self, field: &Field, value: u64) {
         match field.name() {
             "log.line" => self.line = value,
-            _ => {},
+            _ => {}
         }
     }
 
@@ -69,7 +71,7 @@ impl Visit for CounterLogVisitor {
 
 impl<S> Layer<S> for Counter
 where
-    S: Subscriber
+    S: Subscriber,
 {
     fn new_span(&self, _: &Attributes, _: &Id, _: Context<S>) {}
 
