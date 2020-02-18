@@ -1,3 +1,4 @@
+use async_stream;
 use futures_0_3::future::{self, try_join_all};
 use futures_0_3::stream::StreamExt;
 use hello_world::greeter_client::GreeterClient;
@@ -18,14 +19,26 @@ pub mod hello_world {
     tonic::include_proto!("helloworld");
 }
 
-#[derive(Default)]
 struct State {
     request_count: AtomicUsize,
     failed_requests: AtomicUsize,
     in_flight: AtomicUsize,
     max_age: AtomicUsize,
     request_time: AtomicUsize,
-    counts: Arc<RwLock<HashMap<String, AtomicUsize>>>,
+    semaphore: tokio::sync::Semaphore,
+}
+
+impl State {
+    fn new(max_in_flight: usize) -> Self {
+        State {
+            request_count: AtomicUsize::new(0),
+            failed_requests: AtomicUsize::new(0),
+            in_flight: AtomicUsize::new(0),
+            max_age: AtomicUsize::new(0),
+            request_time: AtomicUsize::new(0),
+            semaphore: tokio::sync::Semaphore::new(max_in_flight),
+        }
+    }
 }
 
 async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Arc<State>) {
@@ -63,26 +76,24 @@ async fn do_work_stream(
     state: Arc<State>,
 ) -> Result<(), tonic::Status> {
     let req_state = state.clone();
-    // Target is 1MM RPS across 4 tasks
-    let req_delay_ns: u64 = 1_000_000_000 / 1_000_000 * 4;
-    let request_stream = time::interval(Duration::from_nanos(req_delay_ns))
-        .enumerate()
-        .map(move |(seq, t)| {
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let request_stream = async_stream::stream! {
+        let mut seq = 0;
+        loop {
+            req_state.semaphore.acquire().await.forget();
             req_state.in_flight.fetch_add(1, Ordering::SeqCst);
             let start = Instant::now();
             let req = HelloRequest {
                 // name: "Tonic".into(),
                 name: seq as u64,
             };
-            (start, req)
-        });
-
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let request_stream = request_stream.map(move |(time, req)| {
-        tx.send(time).ok();
-        req
-    });
+            seq += 1;
+            tx.send(start).ok();
+            yield req;
+        }
+    };
 
     let response = client.say_hello_stream(request_stream).await?;
 
@@ -91,6 +102,7 @@ async fn do_work_stream(
         .zip(rx)
         .enumerate()
         .for_each(move |(i, (r, t))| {
+            state.semaphore.add_permits(1);
             match r {
                 Ok(response) => {
                     assert_eq!(response.message, i as u64);
@@ -146,17 +158,6 @@ async fn log_loop(state: Arc<State>) {
         let failed_requests = state.failed_requests.load(Ordering::SeqCst);
         let in_flight = state.in_flight.load(Ordering::SeqCst);
         let max_age = state.max_age.load(Ordering::SeqCst);
-        {
-            let h = state.counts.read().unwrap();
-            let mut v = h
-                .iter()
-                .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed) as u64 / start_elapsed))
-                .collect::<Vec<(String, u64)>>();
-            v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-            for t in v {
-                println!("{}: {}", t.0, t.1);
-            }
-        }
         println!(
             "{} total requests ({}/sec last 1 sec) ({}/sec total). last log {} sec ago. {} failed, {} in flight, {} µs max, {} µs avg response time",
             request_count, req_sec, total_req_sec, elapsed, failed_requests, in_flight, max_age, avg_time
@@ -212,7 +213,7 @@ fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>
 
 #[tokio::main(core_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let state = Arc::new(State::default());
+    let state = Arc::new(State::new(100));
     configure_tracing(state.clone())?;
 
     let log_state = state.clone();
