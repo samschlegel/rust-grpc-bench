@@ -14,35 +14,38 @@ pub trait Param: Default + Debug + Sized {
     fn type_id(&self) -> &'static TypeId;
 }
 
-pub trait Head {
-    fn role(&self) -> String;
-    fn description(&self) -> String;
-    fn parameters(&self) -> Vec<TypeId>;
+#[derive(Clone, Copy)]
+pub struct Metadata<'a> {
+    role: &'a str,
+    description: &'a str,
+    parameters: &'a [TypeId],
 }
 
-pub trait Stackable<T>: Head {
+pub trait HasMetadata {
+    fn metadata(&self) -> Metadata<'static>;
+}
+
+pub trait Stackable<T>: HasMetadata {
     fn to_stack(self, next: Stack<T>) -> Stack<T>;
 }
 
 pub enum Stack<T> {
     Node(
-        Arc<Box<dyn Head>>,
+        Metadata<'static>,
         Box<dyn FnOnce(&Params, Box<Stack<T>>) -> Stack<T>>,
         Box<Stack<T>>,
     ),
-    Leaf(Arc<Box<dyn Head>>, T),
+    Leaf(Metadata<'static>, T),
 }
 
-pub fn simple_node<H: Head + 'static, T, Mk: FnOnce(T) -> T + 'static>(head: H, mk: Mk, next: Stack<T>) -> Stack<T> {
-    let h: Arc<Box<dyn Head>> = Arc::new(Box::from(head));
-    let h2 = h.clone();
+pub fn simple_node<T, Mk: FnOnce(T) -> T + 'static>(metadata: Metadata<'static>, mk: Mk, next: Stack<T>) -> Stack<T> {
     let f = move |p: &Params, stk: Box<Stack<T>>| {
-        Stack::Leaf(h2, mk(stk.make(p)))
+        Stack::Leaf(metadata, mk(stk.make(p)))
     };
-    Stack::Node(h, Box::from(f), Box::from(next))
+    Stack::Node(metadata, Box::from(f), Box::from(next))
 }
 
-pub fn leaf<H: Head + 'static, T>(head: H, )
+// pub fn leaf<H: Head + 'static, T>(head: H, )
 
 impl<T> Stack<T> {
     fn make(self, params: &Params) -> T {
@@ -102,16 +105,20 @@ impl<Req, Rep> ServiceFactory<Req, Rep> for Router<Req, Rep> {
         self.inner.call(conn)
     }
 }
-impl<Req, Rep> Head for Router<Req, Rep> {
-    fn role(&self) -> String {
-        "router".to_string()
-    }
-    fn description(&self) -> String {
-        "Router".to_string()
-    }
 
-    fn parameters(&self) -> Vec<TypeId> {
-        Vec::new()
+const ROUTER_METADATA: Metadata = Metadata {
+    role: "router",
+    description: "router",
+    parameters: &[],
+};
+
+impl<Req, Rep> HasMetadata for Router<Req, Rep> {
+    fn metadata(&self) -> Metadata<'static> {
+        Metadata {
+            role: "router",
+            description: "router",
+            parameters: &[],
+        }
     }
 }
 
@@ -121,14 +128,13 @@ where
     Rep: 'static,
 {
     fn to_stack(self, next: Stack<Box<dyn ServiceFactory<Req, Rep>>>) -> Stack<Box<dyn ServiceFactory<Req, Rep>>> {
-        let h = Arc::new(Box::from(self) as Box<dyn Head>);
-        let h2 = h.clone();
-        let mk = |p: &Params, next: Box<Stack<Box<dyn ServiceFactory<Req, Rep>>>>| {
+        let meta = self.metadata();
+        let mk = move |p: &Params, next: Box<Stack<Box<dyn ServiceFactory<Req, Rep>>>>| {
             let inner = Box::from(next.make(p));
-            Stack::Leaf(h, Box::from(Router { inner }) as Box<dyn ServiceFactory<Req, Rep>>)
+            Stack::Leaf(meta, Box::from(Router { inner }) as Box<dyn ServiceFactory<Req, Rep>>)
         };
         Stack::Node(
-            h2,
+            meta,
             Box::from(mk),
             Box::from(next),
         )
@@ -164,16 +170,14 @@ impl ServiceFactory<MyGrpcReq, MyGrpcRep> for MyGrpcServiceFactory {
         )))
     }
 }
-impl Head for MyGrpcServiceFactory {
-    fn role(&self) -> String {
-        "mygrpcservicefactory".to_string()
-    }
-    fn description(&self) -> String {
-        "My gRPC Service Factory".to_string()
-    }
 
-    fn parameters(&self) -> Vec<TypeId> {
-        Vec::new()
+impl HasMetadata for MyGrpcServiceFactory {
+    fn metadata(&self) -> Metadata<'static> {
+        Metadata {
+            role: "mygrpcservicefactory",
+            description: "My gRPC Service Factory",
+            parameters: &[],
+        }
     }
 }
 
