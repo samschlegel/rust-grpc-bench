@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let mut futs = vec![];
-    for _ in 0..100 {
+    for _ in 0..10 {
         let env = Arc::new(EnvBuilder::new().build());
         let ch = ChannelBuilder::new(env.clone()).connect("[::1]:50051");
         let client = GreeterClient::new(ch);

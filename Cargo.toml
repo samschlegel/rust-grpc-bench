@@ -7,30 +7,28 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "=0.2.10", features = ["macros", "rt-core", "rt-threaded", "time", "signal", "stream"] }
-prost = "0.6"
-tonic = "0.1"
-# log = "0.4"
+async-stream = "0.2"
 chrono = "0.4"
-# fern = "0.5"
-grpcio = "0.4"
-protobuf = "~2"
 futures = "0.1"
 futures_0_3 = { package = "futures", version = "0.3", features = ["compat"] }
+# grpcio = "0.4"
+hyper = "0.13"
+# log = "0.4"
+prost = "0.6"
+protobuf = "~2"
+tokio = { version = "=0.2.10", features = ["macros", "rt-core", "rt-threaded", "time", "signal", "stream"] }
+tonic = "0.1"
 tracing = "0.1"
 tracing-core = "0.1"
+tracing-futures = "0.2"
+tracing-log = "0.1"
 tracing-subscriber = { version = "0.2", features = ["env-filter", "fmt", "registry"] }
-tracing-log = "0.1.1"
-hyper = "0.13.2"
-async-stream = "0.2"
+opentelemetry = "0.4"
+opentelemetry-datadog = { git = "https://github.com/discord/opentelemetry-rust-datadog", rev = "6592b994e9f1931e1cdf7de9158d97dd9a44daa9" }
+tracing-opentelemetry = "0.3"
 
 [build-dependencies]
 tonic-build = "0.1"
-protoc-grpcio = "1.0.2"
 
 [patch.crates-io]
-hyper = { path = "../hyper" }
-tracing = { path = "../tracing/tracing" }
-tracing-core = { path = "../tracing/tracing-core" }
-tracing-subscriber = { path = "../tracing/tracing-subscriber" }
-tracing-log = { path = "../tracing/tracing-log" }
+opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "99f22d7ee8b84e0e998cddba40bf13358e303700"}

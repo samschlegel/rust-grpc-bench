@@ -1,6 +1,16 @@
 use futures_0_3::stream::{Stream, StreamExt};
 use std::pin::Pin;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
+use opentelemetry::{api::Provider, global, sdk};
+use opentelemetry_datadog;
+use tracing::info_span;
+use tracing_futures::Instrument;
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::{
+    filter::{EnvFilter},
+    layer::SubscriberExt,
+    registry::Registry,
+};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
@@ -18,6 +28,8 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
+        let span = info_span!("say_hello server");
+        let _guard = span.enter();
         // println!("Got a request from {:?}", request.remote_addr());
 
         let reply = hello_world::HelloReply {
@@ -46,14 +58,57 @@ impl Greeter for MyGreeter {
     }
 }
 
-#[tokio::main(core_threads = 4)]
+fn configure_tracing() -> Result<(), Box<dyn std::error::Error>> {
+    // Create datadog exporter to be able to retrieve the collected spans.
+    let exporter = opentelemetry_datadog::Exporter::builder()
+        .with_trace_addr("127.0.0.1:3022".parse().unwrap())
+        .build();
+
+    // Batching is required to offload from the main thread
+    let batch = sdk::BatchSpanProcessor::builder(exporter, tokio::spawn, tokio::time::interval)
+        .with_max_queue_size(10000)
+        .with_scheduled_delay(std::time::Duration::from_millis(100))
+        .with_max_export_batch_size(1000)
+        .build();
+
+    // For the demonstration, use `Sampler::Always` sampler to sample all traces. In a production
+    // application, use `Sampler::Parent` or `Sampler::Probability` with a desired probability.
+    let provider = sdk::Provider::builder()
+        .with_batch_exporter(batch)
+        .with_config(sdk::Config {
+            default_sampler: Box::new(sdk::Sampler::Probability(1.0)),
+            ..Default::default()
+        })
+        .build();
+    global::set_provider(provider);
+
+    // Create a new tracer
+    let tracer = global::trace_provider().get_tracer("component_name");
+
+    // Create a new OpenTelemetry tracing layer
+    let telemetry = OpenTelemetryLayer::with_tracer(tracer);
+
+    let filter = EnvFilter::from_default_env();
+
+    let subscriber = Registry::default()
+        .with(telemetry)
+        .with(filter);
+
+    tracing::subscriber::set_global_default(subscriber)?;
+    Ok(())
+}
+
+#[tokio::main(core_threads = 1)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50052".parse().unwrap();
     let greeter = MyGreeter::default();
 
     println!("GreeterServer listening on {}", addr);
 
+    configure_tracing()?;
+
     Server::builder()
+        .trace_fn(|_| info_span!("grpc.request"))
         .add_service(GreeterServer::new(greeter))
         .serve(addr)
         .await?;

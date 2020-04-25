@@ -3,6 +3,8 @@ use futures_0_3::future::{self, try_join_all};
 use futures_0_3::stream::StreamExt;
 use hello_world::greeter_client::GreeterClient;
 use hello_world::HelloRequest;
+use opentelemetry::{api::Provider, global, sdk};
+use opentelemetry_datadog;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -10,9 +12,14 @@ use std::time::{Duration, Instant};
 use tokio::task::spawn;
 use tokio::time::{self, delay_for};
 use tonic::transport::Channel;
+use tracing::info_span;
+use tracing_futures::Instrument;
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{
     filter::{EnvFilter, LevelFilter},
-    FmtSubscriber,
+    fmt::{self, time::ChronoUtc},
+    layer::SubscriberExt,
+    registry::Registry,
 };
 
 pub mod hello_world {
@@ -50,7 +57,7 @@ async fn do_work(mut client: GreeterClient<tonic::transport::Channel>, state: Ar
         name: 1,
     });
 
-    let response = client.say_hello(request).await;
+    let response = client.say_hello(request).instrument(info_span!("say_hello")).await;
     match response {
         Ok(_response) => {
             state.request_count.fetch_add(1, Ordering::SeqCst);
@@ -133,7 +140,8 @@ async fn work_loop(
     state: Arc<State>,
 ) -> Result<(), tonic::Status> {
     loop {
-        do_work_stream(client.clone(), state.clone()).await?;
+        let span = info_span!("do_work");
+        do_work(client.clone(), state.clone()).instrument(span).await;
     }
 }
 
@@ -194,24 +202,46 @@ async fn log_loop(state: Arc<State>) {
 // }
 
 fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>> {
-    let filter = EnvFilter::from_default_env().add_directive(LevelFilter::ERROR.into());
-    // .add_directive("discovery=trace".parse()?)
-    // .add_directive("hyper=warn".parse()?)
-    // .add_directive("tokio_core=warn".parse()?)
-    // .add_directive("tokio_reactor=warn".parse()?)
-    // .add_directive("h2=warn".parse()?);
-    // .add_directive("tower_buffer=warn".parse()?);
+    // Create datadog exporter to be able to retrieve the collected spans.
+    let exporter = opentelemetry_datadog::Exporter::builder()
+        .with_trace_addr("127.0.0.1:3022".parse().unwrap())
+        .build();
 
-    let subscriber = FmtSubscriber::builder().with_env_filter(filter).finish();
-    // let counter = Counter { counts: state.counts.clone() };
-    // let subscriber = Registry::default();
-    // let subscriber = Registry::default().with(counter);
-    // tracing_log::LogTracer::init().map_err(Box::new)?;
+    // Batching is required to offload from the main thread
+    let batch = sdk::BatchSpanProcessor::builder(exporter, tokio::spawn, tokio::time::interval)
+        .with_max_queue_size(1000000)
+        .with_scheduled_delay(std::time::Duration::from_millis(1000))
+        .with_max_export_batch_size(10000)
+        .build();
+
+    // For the demonstration, use `Sampler::Always` sampler to sample all traces. In a production
+    // application, use `Sampler::Parent` or `Sampler::Probability` with a desired probability.
+    let provider = sdk::Provider::builder()
+        .with_batch_exporter(batch)
+        .with_config(sdk::Config {
+            default_sampler: Box::new(sdk::Sampler::Probability(1.0)),
+            ..Default::default()
+        })
+        .build();
+    global::set_provider(provider);
+
+    // Create a new tracer
+    let tracer = global::trace_provider().get_tracer("component_name");
+
+    // Create a new OpenTelemetry tracing layer
+    let telemetry = OpenTelemetryLayer::with_tracer(tracer);
+
+    let filter = EnvFilter::from_default_env();
+
+    let subscriber = Registry::default()
+        .with(telemetry)
+        .with(filter);
+
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(())
 }
 
-#[tokio::main(core_threads = 4)]
+#[tokio::main(core_threads = 1)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::new(100));
     configure_tracing(state.clone())?;
@@ -221,12 +251,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_loop(log_state).await;
     });
 
-    let endpoints = (0..4).map(|_| Channel::from_static("http://[::1]:50052"));
+    let endpoints = (0..10).map(|_| Channel::from_static("http://[::1]:50052"));
     let channel = Channel::balance_list(endpoints);
     let client = GreeterClient::new(channel);
 
     let mut futs = vec![];
-    for _ in 0..4 {
+    for _ in 0..1 {
         // let client = GreeterClient::connect("http://[::1]:50051").await?;
         futs.push(spawn(work_loop(client.clone(), state.clone())));
     }
