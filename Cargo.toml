@@ -24,11 +24,12 @@ tracing-futures = "0.2"
 tracing-log = "0.1"
 tracing-subscriber = { version = "0.2", features = ["env-filter", "fmt", "registry"] }
 opentelemetry = "0.4"
-opentelemetry-datadog = { git = "https://github.com/discord/opentelemetry-rust-datadog", rev = "6592b994e9f1931e1cdf7de9158d97dd9a44daa9" }
+opentelemetry-datadog = { git = "https://github.com/discord/opentelemetry-rust-datadog" }
 tracing-opentelemetry = "0.3"
 
 [build-dependencies]
 tonic-build = "0.1"
 
 [patch.crates-io]
-opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "99f22d7ee8b84e0e998cddba40bf13358e303700"}
+opentelemetry = { path = "../opentelemetry-rust" }
+# opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "99f22d7ee8b84e0e998cddba40bf13358e303700"}

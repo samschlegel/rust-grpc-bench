@@ -22,6 +22,14 @@ pub mod hello_world {
 #[derive(Default)]
 pub struct MyGreeter {}
 
+impl MyGreeter {
+    async fn get_reply(req: HelloRequest) -> HelloReply {
+        hello_world::HelloReply {
+            message: req.name,
+        }
+    }
+}
+
 #[tonic::async_trait]
 impl Greeter for MyGreeter {
     async fn say_hello(
@@ -29,13 +37,12 @@ impl Greeter for MyGreeter {
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
         let span = info_span!("say_hello server");
-        let _guard = span.enter();
-        // println!("Got a request from {:?}", request.remote_addr());
-
-        let reply = hello_world::HelloReply {
-            // message: format!("Hello {}!", request.into_inner().name),
-            message: request.into_inner().name,
-        };
+        let reply = async move {
+            // This is only in here to try and mimic a prod issue
+            Self::get_reply(request.into_inner()).await
+        }
+        .instrument(span)
+        .await;
         Ok(Response::new(reply))
     }
 
@@ -47,7 +54,6 @@ impl Greeter for MyGreeter {
     ) -> Result<Response<Self::SayHelloStreamStream>, Status> {
         let resp_stream = request.into_inner().map(|r| {
             r.map(|r| HelloReply {
-                // message: format!("Hello {}!", r.name),
                 message: r.name,
             })
         });
@@ -66,9 +72,9 @@ fn configure_tracing() -> Result<(), Box<dyn std::error::Error>> {
 
     // Batching is required to offload from the main thread
     let batch = sdk::BatchSpanProcessor::builder(exporter, tokio::spawn, tokio::time::interval)
-        .with_max_queue_size(10000)
+        .with_max_queue_size(1000000)
         .with_scheduled_delay(std::time::Duration::from_millis(100))
-        .with_max_export_batch_size(1000)
+        .with_max_export_batch_size(100000)
         .build();
 
     // For the demonstration, use `Sampler::Always` sampler to sample all traces. In a production

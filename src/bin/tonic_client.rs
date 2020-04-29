@@ -177,30 +177,6 @@ async fn log_loop(state: Arc<State>) {
     }
 }
 
-// pub fn configure_logging() -> Result<(), Box<dyn std::error::Error>> {
-//     fern::Dispatch::new()
-//         .format(|out, message, record| {
-//             out.finish(format_args!(
-//                 "{}[{}][{}:{}] {}",
-//                 chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
-//                 record.level(),
-//                 record.target(),
-//                 record.line().unwrap_or(0),
-//                 message
-//             ));
-//         })
-//         .level(log::LevelFilter::Info)
-//         .level_for("discovery", log::LevelFilter::Trace)
-//         .level_for("hyper", log::LevelFilter::Warn)
-//         .level_for("tokio_core", log::LevelFilter::Warn)
-//         .level_for("tokio_reactor", log::LevelFilter::Warn)
-//         .level_for("h2", log::LevelFilter::Warn)
-//         .level_for("tower_buffer", log::LevelFilter::Warn)
-//         .chain(std::io::stdout())
-//         .apply()?;
-//     Ok(())
-// }
-
 fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>> {
     // Create datadog exporter to be able to retrieve the collected spans.
     let exporter = opentelemetry_datadog::Exporter::builder()
@@ -241,7 +217,7 @@ fn configure_tracing(state: Arc<State>) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-#[tokio::main(core_threads = 1)]
+#[tokio::main(core_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State::new(100));
     configure_tracing(state.clone())?;
@@ -256,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = GreeterClient::new(channel);
 
     let mut futs = vec![];
-    for _ in 0..1 {
+    for _ in 0..4 {
         // let client = GreeterClient::connect("http://[::1]:50051").await?;
         futs.push(spawn(work_loop(client.clone(), state.clone())));
     }
