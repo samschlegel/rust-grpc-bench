@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     configure_tracing()?;
 
     Server::builder()
-        .trace_fn(|_| info_span!("grpc.request"))
+        .trace_fn(rust_grpc_bench::tonic::extract_span)
         .add_service(GreeterServer::new(greeter))
         .serve(addr)
         .await?;

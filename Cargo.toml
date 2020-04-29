@@ -13,23 +13,27 @@ futures = "0.1"
 futures_0_3 = { package = "futures", version = "0.3", features = ["compat"] }
 # grpcio = "0.4"
 hyper = "0.13"
+http = "0.2"
 # log = "0.4"
+lazy_static = "1.4"
 prost = "0.6"
 protobuf = "~2"
 tokio = { version = "=0.2.10", features = ["macros", "rt-core", "rt-threaded", "time", "signal", "stream"] }
 tonic = "0.1"
 tracing = "0.1"
 tracing-core = "0.1"
-tracing-futures = "0.2"
+tracing-futures = { version = "0.2", features = ["futures-03"] }
 tracing-log = "0.1"
 tracing-subscriber = { version = "0.2", features = ["env-filter", "fmt", "registry"] }
 opentelemetry = "0.4"
-opentelemetry-datadog = { git = "https://github.com/discord/opentelemetry-rust-datadog" }
+opentelemetry-datadog = { git = "https://github.com/discord/opentelemetry-rust-datadog", rev = "a58c82356fbab6ccd6820ecd21c242ad79e2e379"}
 tracing-opentelemetry = "0.3"
 
 [build-dependencies]
 tonic-build = "0.1"
 
 [patch.crates-io]
-opentelemetry = { path = "../opentelemetry-rust" }
-# opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "99f22d7ee8b84e0e998cddba40bf13358e303700"}
+# opentelemetry = { path = "../opentelemetry-rust" }
+# This branch solves an issue with probability sampling and flushes batches when full instead of only on a timer
+# we should remove this once the fixes are upstream and in a release
+opentelemetry = { git = "https://github.com/discord/opentelemetry-rust", branch = "export-on-full-batch"}

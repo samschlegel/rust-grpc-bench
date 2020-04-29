@@ -229,7 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let endpoints = (0..10).map(|_| Channel::from_static("http://[::1]:50052"));
     let channel = Channel::balance_list(endpoints);
-    let client = GreeterClient::new(channel);
+    let client = GreeterClient::with_interceptor(channel, rust_grpc_bench::tonic::intercept);
 
     let mut futs = vec![];
     for _ in 0..4 {
