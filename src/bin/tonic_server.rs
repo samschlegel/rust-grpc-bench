@@ -104,7 +104,7 @@ fn configure_tracing() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::main(core_threads = 1)]
+#[tokio::main(core_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50052".parse().unwrap();
     let greeter = MyGreeter::default();
